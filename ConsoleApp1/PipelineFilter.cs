@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace PipelineFilter;
 
-// Enums (unchanged)
 public enum MatchType
 {
     Equals,
@@ -45,12 +41,11 @@ public enum SortOrder
     Descending
 }
 
-// JSON Converters (unchanged)
 public static class JsonConverters
 {
     public static readonly JsonSerializerOptions DefaultOptions = new()
     {
-        WriteIndented = false, // Default to non-indented
+        WriteIndented = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
         Converters =
         {
@@ -71,14 +66,12 @@ public static class JsonConverters
     }
 }
 
-// Filter Interface (unchanged)
 public interface IFilter
 {
     CompositeFilter And(IFilter filter);
     CompositeFilter Or(IFilter filter);
 }
 
-// BaseFilter (unchanged)
 public abstract record BaseFilter : IFilter
 {
     [JsonPropertyName("matchType")]
@@ -97,7 +90,6 @@ public abstract record BaseFilter : IFilter
     public CompositeFilter Or(IFilter filter) => new(LogicalOperator.Or, this, filter);
 }
 
-// StringFilter (unchanged)
 public sealed record StringFilter : BaseFilter
 {
     [JsonPropertyName("value")]
@@ -114,7 +106,6 @@ public sealed record StringFilter : BaseFilter
     }
 }
 
-// DateFilter (unchanged)
 public sealed record DateFilter : BaseFilter
 {
     [JsonPropertyName("value")]
@@ -142,27 +133,27 @@ public sealed record DateFilter : BaseFilter
     };
 }
 
-// EmptyValueFilter (unchanged)
+
 public sealed record EmptyValueFilter : BaseFilter
 {
     [JsonPropertyName("value")]
-    public string Value { get; init; } = "";
+    public string Value { get; init; } = "0001-01-01T00:00:00";
 
     public EmptyValueFilter(string canonicalName)
         : base(canonicalName, MatchType.IsEmpty) { }
 }
 
-// NotEmptyValueFilter (unchanged)
+
 public sealed record NotEmptyValueFilter : BaseFilter
 {
     [JsonPropertyName("value")]
-    public string Value { get; init; } = "";
+    public string Value { get; init; } = "0001-01-01T00:00:00";
 
     public NotEmptyValueFilter(string canonicalName)
         : base(canonicalName, MatchType.IsNotEmpty) { }
 }
 
-// MultiValueFilter (unchanged)
+
 public sealed record MultiValueFilter : BaseFilter
 {
     [JsonPropertyName("value")]
@@ -179,7 +170,6 @@ public sealed record MultiValueFilter : BaseFilter
     }
 }
 
-// CompositeFilter (unchanged)
 public sealed record CompositeFilter : IFilter
 {
     [JsonPropertyName("operator")]
@@ -211,12 +201,12 @@ public sealed record CompositeFilter : IFilter
     }
 }
 
-// SortCriterion (unchanged)
+
 public sealed record SortCriterion(
     [property: JsonPropertyName("canonicalName")] string CanonicalName,
     [property: JsonPropertyName("order")] SortOrder Order);
 
-// LoanPipelineRequest (updated)
+
 public sealed record LoanPipelineRequest
 {
     private readonly IReadOnlyList<string> _fields;
@@ -231,59 +221,16 @@ public sealed record LoanPipelineRequest
     [JsonPropertyName("sort")]
     public IReadOnlyList<SortCriterion>? Sort => _sort.Any() ? _sort : null;
 
-    [JsonPropertyName("start")]
-    public int? Start { get; init; }
-
-    [JsonPropertyName("limit")]
-    public int? Limit { get; init; }
-
     [JsonPropertyName("includeArchivedLoans")]
     public bool IncludeArchivedLoans { get; init; }
 
-    public LoanPipelineRequest()
-    {
-        _fields = [];
-        _sort = [];
-    }
-
-    public LoanPipelineRequest(IFilter filter) : this()
+    public LoanPipelineRequest(IFilter filter, string[]? fields = null, SortCriterion? sort = null, bool includeArchived = false)
     {
         Filter = filter;
+        _fields = fields?.ToList() ?? [];
+        _sort = sort != null ? [sort] : [];
+        IncludeArchivedLoans = includeArchived;
     }
-
-    private LoanPipelineRequest(
-        object? filter,
-        IReadOnlyList<string> fields,
-        IReadOnlyList<SortCriterion> sort,
-        int? start,
-        int? limit,
-        bool includeArchivedLoans)
-    {
-        Filter = filter;
-        _fields = fields;
-        _sort = sort;
-        Start = start;
-        Limit = limit;
-        IncludeArchivedLoans = includeArchivedLoans;
-    }
-
-    public LoanPipelineRequest WithFields(params string[] fields)
-    {
-        var newFields = fields?.Length > 0 ? [.. _fields, .. fields] : _fields;
-        return new LoanPipelineRequest(Filter, newFields, _sort, Start, Limit, IncludeArchivedLoans);
-    }
-
-    public LoanPipelineRequest WithSort(params SortCriterion[] sortCriteria)
-    {
-        var newSort = sortCriteria?.Length > 0 ? [.. _sort, .. sortCriteria] : _sort;
-        return new LoanPipelineRequest(Filter, _fields, newSort, Start, Limit, IncludeArchivedLoans);
-    }
-
-    public LoanPipelineRequest WithPagination(int start, int limit) =>
-        new LoanPipelineRequest(Filter, _fields, _sort, start, limit, IncludeArchivedLoans);
-
-    public LoanPipelineRequest IncludeArchived(bool include = true) =>
-        new LoanPipelineRequest(Filter, _fields, _sort, Start, Limit, include);
 
     public string ToJson(bool indented = false)
     {
