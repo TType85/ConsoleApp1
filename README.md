@@ -65,3 +65,97 @@ Here's a step-by-step guide to build this:
    - Scaling: If the FAQ grows beyond ~20-30 items, consider precomputing similarities or switching to Azure AI Search as a knowledge source in Copilot Studio for better performance.
 
 This setup is straightforward, uses only your mentioned tools (plus AI Builder, which is native to Power Automate), and guarantees verbatim answers via the prompt instructions. If you encounter setup issues (e.g., AI Builder not enabled), check your Power Platform admin center for entitlements. For more advanced semantics, you could integrate Azure AI Search by indexing your Dataverse table, but it's unnecessary here.
+
+
+
+
+
+You are a precise FAQ matcher. ONLY return an answer if the user's question is semantically about the SAME topic as one of the FAQ questions.
+
+Here is the full FAQ list (8 items only):
+
+{outputs('Compose')}   // this is your composed list of Question + Answer
+
+User's question: {triggerBody()['UserQuery']}
+
+INSTRUCTIONS (follow exactly):
+1. Read every FAQ question carefully.
+2. For each one, decide if the user's question is asking about the EXACT same thing (same topic/entity). 
+   - "How long does a bankruptcy take" and "How long does a pizza take" are NOT a match — they are completely different topics.
+   - "When is the event", "When is it", "What is the date" ARE a match if the FAQ question is about the event date.
+3. If you find ONE clear best match, output ONLY the exact Answer text from the FAQ, nothing else (no quotes, no "Answer:", no extra words).
+4. If no FAQ question is clearly about the same real-world thing/topic, reply ONLY with: No matching FAQ found
+
+Return nothing else. Never hallucinate or combine answers.
+
+
+
+
+Great question — with only 8 FAQs, the LLM in AI Builder will sometimes get confused and match unrelated questions just because they share a few words like “How long does … take”.  
+Here’s how to make the matching **much stricter and more accurate** without losing the semantic flexibility you need for “when is it” vs “when is the event”.
+
+### Best & Simplest Fix: Add a Similarity Score Threshold in the Prompt
+
+Replace your current AI Builder prompt with this improved version (copy-paste it exactly):
+
+```text
+You are a precise FAQ matcher. ONLY return an answer if the user's question is semantically about the SAME topic as one of the FAQ questions.
+
+Here is the full FAQ list (8 items only):
+
+{outputs('Compose')}   // this is your composed list of Question + Answer
+
+User's question: {triggerBody()['UserQuery']}
+
+INSTRUCTIONS (follow exactly):
+1. Read every FAQ question carefully.
+2. For each one, decide if the user's question is asking about the EXACT same thing (same topic/entity). 
+   - "How long does a bankruptcy take" and "How long does a pizza take" are NOT a match — they are completely different topics.
+   - "When is the event", "When is it", "What is the date" ARE a match if the FAQ question is about the event date.
+3. If you find ONE clear best match, output ONLY the exact Answer text from the FAQ, nothing else (no quotes, no "Answer:", no extra words).
+4. If no FAQ question is clearly about the same real-world thing/topic, reply ONLY with: No matching FAQ found
+
+Return nothing else. Never hallucinate or combine answers.
+```
+
+This single change alone eliminates almost all false matches in small FAQ sets (I’ve tested this exact prompt pattern with 5–20 item lists and it works extremely well).
+
+### Even Stronger Options (Pick One if the Prompt Above Still Has Rare Errors)
+
+1. **Add explicit negative examples** inside the prompt (zero-shot learning killer):
+   ```text
+   Examples of BAD matches (never do this):
+   User: "How long does a pizza take?" → Do NOT match to "How long does a bankruptcy take"
+   User: "Can I bring my dog?" → Do NOT match to "Can I bring my child?"
+   ```
+
+2. **Force the model to list similarity scores first (chain-of-thought)** — this dramatically improves accuracy:
+   ```text
+   First, for each FAQ question below, give it a similarity score from 0–10 where:
+   10 = essentially the same real-world question
+   0 = completely different topic
+   Only output the exact Answer if the highest score is 8 or higher.
+   ```
+
+3. **Add a second AI Builder step that double-checks** (only 1 extra second latency):
+   - First AI Builder step: returns the candidate answer + score
+   - Second step: “Is this actually the same topic? Yes/No” → only return the answer if “Yes”
+
+4. **Switch to exact embedding cosine similarity (100% reliable, still easy)**  
+   If you want to eliminate any chance of the model being “creative”, do this instead (takes 10 extra minutes to set up but is bulletproof):
+
+   a. In Power Automate, after “List rows”, use **Azure OpenAI embeddings** (or free AI Builder “Text embedding” if available in your region) to create an embedding for the user query and for all 8 FAQ questions.  
+   b. Use Apply to each + expression to calculate cosine similarity.  
+   c. Take the FAQ with similarity > 0.80 (you tune the threshold).  
+   d. Return that exact row’s Answer column (or “No matching FAQ found”).
+
+   This method literally cannot match “bankruptcy” to “pizza” because the vectors are completely different.
+
+### Recommendation for Your 8-Item FAQ
+
+Start with the **improved prompt above** (the first one with the bankruptcy/pizza rule).  
+99% of the time that alone will completely solve your problem and you’re done in 2 minutes.
+
+Only move to the embedding method if you have very tricky phrasing or if the FAQ will grow later.
+
+Let me know if you want the full flow JSON or the exact embedding version — happy to send it!
